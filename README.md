@@ -2,6 +2,7 @@
 RetroArcade is a dual-mode IoT console bridging the gap between local edge computing and cloud connectivity. It features a custom ESP8266 controller that seamlessly toggles between peer-to-peer ESP-NOW for zero-latency offline play and WebSockets for cloud-hosted games.
 
 Programming languages and technologies used across different layers of the system:
+
   -> C++ (Embedded/Hardware Layer): Used to program the ESP8266 master controller and the ESP32 offline console. By writing in bare-metal C++, the system bypasses operating system overhead to ensure instantaneous response times for reflex-based gaming. C++ handles the peer-to-peer ESP-NOW MAC-layer transmissions , the local Pac-Man engine's $15\times18$ integer state matrices, constant-time O(1) collision physics, and direct rendering to the ILI9341 TFT display.
   
   -> Python (Backend Web Server): Powers the cloud-connected paradigm through a Flask server. Python manages the hybrid HTTP/WebSocket relay (using Flask-SocketIO) for real-time, bi-directional telemetry. It also handles backend routing, user authentication, and data storage.
