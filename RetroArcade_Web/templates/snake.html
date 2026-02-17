@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP Arcade - Snake</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/retro.css') }}">
+</head>
+<body>
+    <nav class="arcade-nav">
+        {% if current_user.is_authenticated %}
+            <a href="{{ url_for('hub') }}">GAMES</a>
+            <a href="{{ url_for('settings') }}">CONFIG</a>
+            <a href="{{ url_for('logout') }}">LOGOUT</a>
+        {% else %}
+            <a href="{{ url_for('login') }}">INSERT COIN</a>
+        {% endif %}
+    </nav>
+
+    <div class="container center-box">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash">{{ messages[0] }}</div><br>
+            {% endif %}
+        {% endwith %}
+
+        <h2 class="text-green">SNAKE</h2>
+        <div style="margin-bottom: 10px;">
+            HI-SCORE: <span id="highScore" class="text-green">{{ high_score }}</span> 
+            &nbsp;|&nbsp; 
+            SCORE: <span id="score">0</span>
+        </div>
+        
+        <div style="position: relative; width: fit-content; margin: auto;">
+            <canvas id="gameCanvas" width="400" height="400" class="game-container border-green"></canvas>
+
+            <!-- Locked/Paused Overlay -->
+            <div id="overlay" class="locked-overlay" style="display: none;">
+                <h3 class="text-red">PAUSED</h3>
+                <p>CONTROLLER OFFLINE</p>
+                <div class="blink-dot"></div>
+            </div>
+            
+            <!-- Game Over Overlay (Hidden by default) -->
+            <div id="gameOverOverlay" class="locked-overlay" style="display: none; background: rgba(0,0,0,0.85);">
+                <h3 class="text-red">GAME OVER</h3>
+                <p style="font-size: 0.8em; margin-top: 10px;">SCORE: <span id="finalScore">0</span></p>
+                <p style="font-size: 0.6em; color: var(--neon-green); margin-top: 20px; animation: blink 1s infinite;">PRESS ANY BUTTON</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const gameOverOverlay = document.getElementById('gameOverOverlay');
+        const finalScoreSpan = document.getElementById('finalScore');
+        
+        // Game Settings
+        const gridSize = 20;
+        const tileCount = canvas.width / gridSize;
+        
+        let snake = [{x: 10, y: 10}];
+        let food = {x: 15, y: 15};
+        let dx = 0, dy = 0, score = 0;
+        let gameRunning = false; 
+        let interval;
+        let isGameOver = false;
+
+        // --- CONTROLLER STATUS ---
+        socket.on('controller_status', (data) => {
+            if (data.action === "connected") {
+                overlay.style.display = "none";
+                if (!isGameOver) startGame(); 
+            } else if (data.action === "disconnected") {
+                overlay.style.display = "flex";
+                stopGame();
+            }
+        });
+
+        // --- INPUT LOGIC ---
+        socket.on('game_input', (data) => {
+            if (overlay.style.display === "flex") return; 
+
+            // If Game Over, any input restarts the game
+            if (isGameOver) {
+                if (data.dx !== 0 || data.dy !== 0) {
+                    resetAndStart();
+                }
+                return;
+            }
+
+            // If Idle (start of game), start moving
+            if (!interval && !isGameOver && (data.dx !== 0 || data.dy !== 0)) {
+                startGame();
+            }
+            
+            // Prevent reversing
+            if (data.dx === 1 && dx === -1) return;
+            if (data.dx === -1 && dx === 1) return;
+            if (data.dy === 1 && dy === -1) return;
+            if (data.dy === -1 && dy === 1) return;
+            
+            dx = data.dx; 
+            dy = data.dy;
+        });
+
+        function resetAndStart() {
+            isGameOver = false;
+            gameOverOverlay.style.display = "none";
+            startGame();
+        }
+
+        function startGame() {
+            if (interval) clearInterval(interval);
+            snake = [{x: 10, y: 10}];
+            food = {x: 15, y: 15}; // Reset food too
+            score = 0;
+            dx = 0; dy = 0;
+            gameRunning = true;
+            isGameOver = false;
+            document.getElementById('score').innerText = score;
+            
+            // Draw initial state immediately
+            draw();
+            
+            interval = setInterval(loop, 100);
+        }
+
+        function stopGame() {
+            clearInterval(interval);
+            interval = null;
+            gameRunning = false;
+        }
+
+        function loop() {
+            if (!gameRunning || isGameOver) return;
+
+            // CRITICAL FIX: If snake isn't moving, don't update logic
+            // This prevents stationary self-collision
+            if (dx === 0 && dy === 0) {
+                return;
+            }
+
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+
+            // --- WALL COLLISION ---
+            if(head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+                handleGameOver();
+                return;
+            }
+
+            // --- SELF COLLISION ---
+            // Check if new head position overlaps with any existing body part
+            if(snake.some(p => p.x === head.x && p.y === head.y)) {
+                handleGameOver();
+                return;
+            }
+
+            snake.unshift(head);
+            
+            // Eat Food
+            if(head.x === food.x && head.y === food.y) {
+                score++;
+                document.getElementById('score').innerText = score;
+                placeFood();
+            } else {
+                snake.pop();
+            }
+            
+            draw();
+        }
+
+        function handleGameOver() {
+            stopGame();
+            isGameOver = true;
+            
+            // Show Game Over Overlay
+            finalScoreSpan.innerText = score;
+            gameOverOverlay.style.display = "flex";
+
+            // Submit score silently (no alert)
+            fetch('/api/submit_score', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({game: 'snake', score: score})
+            }).then(r => r.json()).then(d => {
+                if(d.new_record) document.getElementById('highScore').innerText = score;
+            }).catch(e => console.error("Score submit failed", e));
+        }
+
+        function placeFood() {
+            food = {
+                x: Math.floor(Math.random() * tileCount),
+                y: Math.floor(Math.random() * tileCount)
+            };
+            while (snake.some(segment => segment.x === food.x && segment.y === food.y)) {
+                food = {
+                    x: Math.floor(Math.random() * tileCount),
+                    y: Math.floor(Math.random() * tileCount)
+                };
+            }
+        }
+
+        function draw() {
+            // Background
+            ctx.fillStyle = '#121212'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Food (Apple style)
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "red";
+            ctx.fillStyle = '#ff3333';
+            ctx.beginPath();
+            ctx.arc(
+                food.x * gridSize + gridSize/2, 
+                food.y * gridSize + gridSize/2, 
+                gridSize/2 - 2, 0, Math.PI * 2
+            );
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Snake
+            ctx.fillStyle = '{{ user.snake_color }}';
+            snake.forEach((p, index) => {
+                const isHead = (index === 0);
+                const size = gridSize - 2; 
+                const x = p.x * gridSize + 1;
+                const y = p.y * gridSize + 1;
+
+                ctx.beginPath();
+                if(ctx.roundRect) ctx.roundRect(x, y, size, size, isHead ? 6 : 2);
+                else ctx.rect(x, y, size, size);
+                ctx.fill();
+
+                // Eyes
+                if (isHead) {
+                    ctx.fillStyle = 'white';
+                    let eyeX = 0, eyeY = 0;
+                    if (dx === 1) eyeX = 4;
+                    if (dx === -1) eyeX = -4;
+                    if (dy === 1) eyeY = 4;
+                    if (dy === -1) eyeY = -4;
+
+                    ctx.beginPath();
+                    ctx.arc(x + size/2 + eyeX - (dy!==0?4:0), y + size/2 + eyeY - (dx!==0?4:0), 2, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(x + size/2 + eyeX + (dy!==0?4:0), y + size/2 + eyeY + (dx!==0?4:0), 2, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '{{ user.snake_color }}';
+                }
+            });
+        }
+        
+        // Initial render
+        draw();
+        // Don't auto-start immediately; wait for connection or input
+    </script>
+</body>
+</html>

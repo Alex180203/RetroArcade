@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP Arcade - Pong</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/retro.css') }}">
+</head>
+<body>
+    <nav class="arcade-nav">
+        {% if current_user.is_authenticated %}
+            <a href="{{ url_for('hub') }}">GAMES</a>
+            <a href="{{ url_for('settings') }}">CONFIG</a>
+            <a href="{{ url_for('logout') }}">LOGOUT</a>
+        {% else %}
+            <a href="{{ url_for('login') }}">INSERT COIN</a>
+        {% endif %}
+    </nav>
+
+    <div class="container center-box">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash">{{ messages[0] }}</div><br>
+            {% endif %}
+        {% endwith %}
+
+        <h2 class="text-cyan">PONG</h2>
+        <div style="margin-bottom: 10px;">
+            HI-SCORE: <span id="highScore" class="text-cyan">{{ high_score }}</span> 
+            &nbsp;|&nbsp; 
+            SCORE: <span id="score">0</span>
+            &nbsp;|&nbsp; 
+            LIVES: <span id="lives">3</span>
+        </div>
+
+        <div style="position: relative; width: fit-content; margin: auto;">
+            <canvas id="gameCanvas" width="600" height="400" class="game-container border-cyan"></canvas>
+            
+            <!-- Boost Indicator -->
+            <div id="boostText" style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); color: var(--neon-red); font-size: 20px; display: none; text-shadow: 0 0 10px red; pointer-events: none;">
+                BOOST!
+            </div>
+
+            <!-- Locked/Paused Overlay -->
+            <div id="overlay" class="locked-overlay" style="display: none;">
+                <h3 class="text-red">PAUSED</h3>
+                <p>CONTROLLER OFFLINE</p>
+                <div class="blink-dot"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const boostText = document.getElementById('boostText');
+        const livesDisplay = document.getElementById('lives');
+        const scoreDisplay = document.getElementById('score');
+
+        // Paddle properties
+        let paddleY = 150;
+        let paddleHeight = 80;
+        let prevPaddleY = 150; 
+        let paddleVelocity = 0;
+
+        // Ball properties
+        let ball = {x: 300, y: 200, dx: 4, dy: 4, speed: 5};
+        
+        // Game state
+        let score = 0;
+        let lives = 3;
+        let gameRunning = true;
+        let animationId;
+        let isBoosted = false;
+
+        // --- CONTROLLER STATUS LOGIC ---
+        socket.on('controller_status', (data) => {
+            if (data.action === "connected") {
+                overlay.style.display = "none";
+                startNewGame(); // Full reset on connect
+            } else if (data.action === "disconnected") {
+                overlay.style.display = "flex";
+                gameRunning = false; 
+                cancelAnimationFrame(animationId);
+            }
+        });
+
+        // --- INPUT LOGIC ---
+        socket.on('game_input', (data) => {
+            if(!gameRunning) return; 
+
+            prevPaddleY = paddleY;
+
+            if (data.dy === -1) paddleY -= 20;
+            if (data.dy === 1) paddleY += 20;
+
+            if(paddleY < 0) paddleY = 0;
+            if(paddleY > canvas.height - paddleHeight) paddleY = canvas.height - paddleHeight;
+
+            paddleVelocity = paddleY - prevPaddleY;
+        });
+
+        // FULL RESET (New Game)
+        function startNewGame() {
+            score = 0;
+            lives = 3;
+            scoreDisplay.innerText = score;
+            livesDisplay.innerText = lives;
+            resetRound();
+        }
+
+        // SOFT RESET (New Round after death)
+        function resetRound() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.speed = 5;
+            ball.dx = 5; 
+            ball.dy = 5;
+            isBoosted = false;
+            
+            if (Math.random() > 0.5) ball.dy = -ball.dy;
+
+            gameRunning = true;
+            boostText.style.display = 'none';
+            
+            if(animationId) cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        function showBoostEffect() {
+            boostText.style.display = 'block';
+            setTimeout(() => { boostText.style.display = 'none'; }, 500);
+        }
+
+        function handleLifeLost() {
+            gameRunning = false;
+            lives--;
+            livesDisplay.innerText = lives;
+
+            if (lives <= 0) {
+                // No lives left -> Game Over
+                submitScore();
+            } else {
+                // Lives remaining -> Reset ball after delay
+                // Draw "READY" text
+                ctx.fillStyle = "white";
+                ctx.font = "20px 'Press Start 2P'";
+                ctx.fillText("READY?", canvas.width/2 - 50, canvas.height/2 - 40);
+                
+                setTimeout(() => {
+                    resetRound();
+                }, 1000);
+            }
+        }
+
+        function gameLoop() {
+            if(!gameRunning) return;
+            
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            // Top/Bottom Wall Collisions
+            if(ball.y < 0 || ball.y > canvas.height) {
+                ball.dy = -ball.dy;
+            }
+            // Right Wall (Bounce)
+            if(ball.x > canvas.width) {
+                ball.dx = -ball.dx; 
+            }
+            
+            // Paddle Collision
+            let paddleRightEdge = 20; 
+            
+            if(ball.x < paddleRightEdge + ball.speed && ball.y > paddleY && ball.y < paddleY + paddleHeight) {
+                let collidePoint = (ball.y - (paddleY + paddleHeight/2));
+                collidePoint = collidePoint / (paddleHeight/2);
+                let angleRad = (Math.PI/4) * collidePoint;
+
+                ball.speed += 0.5;
+
+                // Boost check
+                if (Math.abs(paddleVelocity) > 0) {
+                    ball.speed += 2.0; 
+                    isBoosted = true;
+                    showBoostEffect();
+                } else {
+                    isBoosted = false;
+                }
+
+                if (ball.speed > 25) ball.speed = 25;
+
+                let direction = 1; 
+                ball.dx = direction * ball.speed * Math.cos(angleRad);
+                ball.dy = ball.speed * Math.sin(angleRad);
+
+                score++; 
+                scoreDisplay.innerText = score;
+            }
+
+            // Left Wall (Death)
+            if(ball.x < 0) {
+                handleLifeLost();
+                return;
+            }
+            
+            paddleVelocity = 0;
+
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function draw() {
+            ctx.fillStyle = 'black'; 
+            ctx.fillRect(0,0,600,400);
+            
+            // Center Line
+            ctx.strokeStyle = '#333';
+            ctx.setLineDash([10, 15]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width/2, 0);
+            ctx.lineTo(canvas.width/2, canvas.height);
+            ctx.stroke();
+
+            // Paddle
+            ctx.fillStyle = '#0ff'; 
+            ctx.fillRect(10, paddleY, 10, paddleHeight); 
+
+            // Ball
+            ctx.beginPath(); 
+            ctx.arc(ball.x, ball.y, 8, 0, Math.PI*2); 
+            
+            if (isBoosted) {
+                ctx.fillStyle = '#ff3333'; 
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = 'red';
+            } else {
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 0;
+            }
+            
+            ctx.fill();
+            ctx.shadowBlur = 0; 
+        }
+
+        function submitScore() {
+            alert("Game Over! Score: " + score);
+            
+            try {
+                fetch('/api/submit_score', {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({game: 'pong', score: score})
+                })
+                .then(r => {
+                    if(!r.ok) throw new Error("Server response not ok");
+                    return r.json();
+                })
+                .then(d => {
+                    if(d.new_record) document.getElementById('highScore').innerText = score;
+                })
+                .catch(e => {
+                    console.warn("Score submission failed:", e);
+                })
+                .finally(() => {
+                    startNewGame();
+                });
+            } catch (e) {
+                console.warn("Fetch failed:", e);
+                startNewGame();
+            }
+        }
+        
+        startNewGame();
+    </script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP Arcade - Hub</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/retro.css') }}">
+</head>
+<body>
+    <nav class="arcade-nav">
+        {% if current_user.is_authenticated %}
+            <a href="{{ url_for('hub') }}">GAMES</a>
+            <a href="{{ url_for('settings') }}">CONFIG</a>
+            <a href="{{ url_for('logout') }}">LOGOUT</a>
+        {% else %}
+            <a href="{{ url_for('login') }}">INSERT COIN</a>
+        {% endif %}
+    </nav>
+
+    <div class="container center-box">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash">{{ messages[0] }}</div><br>
+            {% endif %}
+        {% endwith %}
+
+        <h1 class="text-green">ARCADE HUB</h1>
+        <p style="font-size: 0.8em; margin-bottom: 40px;">PLAYER: <span class="text-cyan">{{ user.username }}</span></p>
+        
+        <div style="position: relative; min-height: 400px;">
+            <div class="arcade-grid">
+                <div class="arcade-card card-green">
+                    <h3 class="text-green">SNAKE</h3>
+                    <p style="font-size: 0.7em; color: #aaa;">Classic</p>
+                    <a href="{{ url_for('play_game', game_name='snake') }}">
+                        <button class="btn btn-green">PLAY</button>
+                    </a>
+                </div>
+
+                <div class="arcade-card card-cyan">
+                    <h3 class="text-cyan">PONG</h3>
+                    <p style="font-size: 0.7em; color: #aaa;">Defend</p>
+                    <a href="{{ url_for('play_game', game_name='pong') }}">
+                        <button class="btn btn-cyan">PLAY</button>
+                    </a>
+                </div>
+                
+                <div class="arcade-card card-pink">
+                    <h3 class="text-pink">TETRIS</h3>
+                    <p style="font-size: 0.7em; color: #aaa;">Stack</p>
+                    <a href="{{ url_for('play_game', game_name='tetris') }}">
+                        <button class="btn btn-pink">PLAY</button>
+                    </a>
+                </div>
+            </div>
+
+            <div id="overlay" class="locked-overlay">
+                <h2 class="text-red">LOCKED</h2>
+                <p style="margin-top: 10px;">CONTROLLER OFFLINE</p>
+                <div class="blink-dot"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const overlay = document.getElementById('overlay');
+
+        socket.on('controller_status', (data) => {
+            if (data.action === "connected") {
+                overlay.style.display = "none";
+            } else if (data.action === "disconnected") {
+                overlay.style.display = "flex";
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESP Arcade - Settings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/retro.css') }}">
+</head>
+<body>
+    <nav class="arcade-nav">
+        {% if current_user.is_authenticated %}
+            <a href="{{ url_for('hub') }}">GAMES</a>
+            <a href="{{ url_for('settings') }}">CONFIG</a>
+            <a href="{{ url_for('logout') }}">LOGOUT</a>
+        {% else %}
+            <a href="{{ url_for('login') }}">INSERT COIN</a>
+        {% endif %}
+    </nav>
+
+    <div class="container center-box">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="flash">{{ messages[0] }}</div><br>
+            {% endif %}
+        {% endwith %}
+
+        <div style="max-width: 400px; margin: 0 auto;">
+            <h2 class="text-cyan">CONFIG</h2>
+            <p>PLAYER: {{ user.username }}</p>
+            <br>
+            <p>SNAKE COLOR:</p>
+            <form method="POST">
+                <input type="color" name="color" value="{{ user.snake_color }}" style="height: 60px; width: 100%; border: 4px solid #fff; background: none; cursor: pointer;" class="form-control form-control-color">
+                <br><br>
+                <button type="submit" class="btn btn-cyan btn-block w-100">SAVE CONFIG</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
